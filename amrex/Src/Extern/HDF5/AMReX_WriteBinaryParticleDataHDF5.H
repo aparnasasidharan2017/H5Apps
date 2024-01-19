@@ -392,10 +392,8 @@ void WriteHDF5ParticleDataSync (PC const& pc,
     pc.nOutFilesPrePost = nOutFiles;
 
     fapl = H5Pcreate (H5P_FILE_ACCESS);
-    dxpl_col = H5Pcreate(H5P_DATASET_XFER);
 #ifdef BL_USE_MPI
     SetHDF5fapl(fapl, ParallelDescriptor::Communicator());
-    H5Pset_dxpl_mpio(dxpl_col, H5FD_MPIO_COLLECTIVE);
 #else
     SetHDF5fapl(fapl);
 #endif
