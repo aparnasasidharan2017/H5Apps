@@ -257,7 +257,6 @@ while ( false )
     inline bool
     IOProcessor () noexcept
     {
-	 std::cout <<" rank = "<<MyProc()<<std::endl;
          return MyProc() == IOProcessorNumber();
     }
 

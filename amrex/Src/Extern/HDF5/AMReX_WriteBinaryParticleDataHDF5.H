@@ -227,8 +227,6 @@ void WriteHDF5ParticleDataSync (PC const& pc,
 
     BL_PROFILE_VAR("H5FileCreate", h5fg);
 
-    hid_t dxpl_col;
-    if (ParallelDescriptor::IOProcessor())
     {
         int set_stripe = 0;
         char setstripe[1024];
@@ -249,7 +247,11 @@ void WriteHDF5ParticleDataSync (PC const& pc,
             std::cout << "Setting stripe parameters for HDF5 output: " << setstripe << std::endl;
             amrex::ignore_unused(std::system(setstripe));
         }
-        fid = H5Fcreate(HDF5FileName.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+	hid_t async_fapl = H5Pcreate(H5P_FILE_ACCESS);
+	H5Pset_fapl_mpio(async_fapl, MPI_COMM_WORLD, MPI_INFO_NULL);
+	hid_t async_dxpl = H5Pcreate(H5P_DATASET_XFER);
+	H5Pset_dxpl_mpio(async_dxpl, H5FD_MPIO_COLLECTIVE);
+        fid = H5Fcreate(HDF5FileName.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, async_fapl);
         if (fid < 0) amrex::FileOpenFailed(HDF5FileName.c_str());
 
         //
@@ -284,7 +286,7 @@ void WriteHDF5ParticleDataSync (PC const& pc,
         int ncomp = num_output_real + num_output_int;
         CreateWriteHDF5Attr(fid, "num_component", 1, &ncomp, H5T_NATIVE_INT);
         CreateWriteHDF5Attr(fid, "num_component_real", 1, &num_output_real, H5T_NATIVE_INT);
-
+	
         char comp_name[128];
         // Real component names
         for (int i = 0; i < NStructReal + pc.NumRealComps(); ++i ) {
@@ -334,8 +336,8 @@ void WriteHDF5ParticleDataSync (PC const& pc,
             // Then the number of grids at each level.
             ngrids = pc.ParticleBoxArray(lev).size();
             CreateWriteHDF5Attr(grp, "ngrids", 1, &ngrids, H5T_NATIVE_INT);
-
-            /* int ratio = 1; */
+		
+            /*int ratio = 1; */
             /* CreateWriteHDF5Attr(grp, "ref_ratio", 1, &ratio); */
 
             int mfs_size = 2 * AMREX_SPACEDIM;
@@ -352,7 +354,12 @@ void WriteHDF5ParticleDataSync (PC const& pc,
                 }
             }
 	    status = 1;
-            //status = H5Dwrite(mfs_dset, comp_dtype, H5S_ALL, H5S_ALL,dxpl_col, &(vbox[0]));
+	    hid_t file_dataspace = H5Dget_space(mfs_dset);
+	    hsize_t off = 0;
+	    hsize_t count = (ParallelDescriptor::IOProcessor()) ? ngrids : 0;
+	    hid_t memspace = H5Screate_simple(1,&count,NULL);
+	    status = H5Sselect_hyperslab(file_dataspace,H5S_SELECT_SET,&off,NULL,&count,NULL);
+            status = H5Dwrite(mfs_dset, comp_dtype,file_dataspace,memspace,async_dxpl, &(vbox[0]));
             if (status < 0) {
                 std::string msg("ParticleContainer::WriteHDF5ParticleDataSync(): unable to write boxes dataset");
                 amrex::Abort(msg.c_str());
@@ -360,10 +367,14 @@ void WriteHDF5ParticleDataSync (PC const& pc,
 
             H5Sclose(mfs_dset_space);
             H5Dclose(mfs_dset);
+	    H5Sclose(file_dataspace);
+	    H5Sclose(memspace);
 
             H5Gclose(grp);
         }
-        H5Pclose(dcpl_id);
+	H5Pclose(async_fapl);
+	H5Pclose(async_dxpl);
+        //H5Pclose(dcpl_id);
         H5Fclose(fid);
     }
 
@@ -377,7 +388,7 @@ void WriteHDF5ParticleDataSync (PC const& pc,
     ParmParse pp("particles");
     pp.queryAdd("particles_nfiles",nOutFiles);
     if(nOutFiles == -1) nOutFiles = NProcs;
-    /* nOutFiles = std::max(1, std::min(nOutFiles,NProcs)); */
+    nOutFiles = std::max(1, std::min(nOutFiles,NProcs)); 
     pc.nOutFilesPrePost = nOutFiles;
 
     fapl = H5Pcreate (H5P_FILE_ACCESS);

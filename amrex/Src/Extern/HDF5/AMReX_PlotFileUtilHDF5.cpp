@@ -624,9 +624,7 @@ void WriteMultiLevelPlotfileHDF5SingleDset (const std::string& plotfilename,
         }
 
 
-        //if(ParallelDescriptor::IOProcessor()) {
-
-	if(1) {
+	  {
             int vbCount(0);
             Vector<int> vbox(sortedGrids.size() * 2 * AMREX_SPACEDIM);
             Vector<int> centering(sortedGrids.size() * AMREX_SPACEDIM);
@@ -1084,7 +1082,11 @@ void WriteMultiLevelPlotfileHDF5MultiDset (const std::string& plotfilename,
             totalOffset += procBufferSize[proc];
         }
 
-        if(ParallelDescriptor::IOProcessor()) {
+	hid_t file_dataspace, memspace;
+	hsize_t off,count;
+
+        //if(ParallelDescriptor::IOProcessor()) 
+	{
             int vbCount(0);
             Vector<int> vbox(sortedGrids.size() * 2 * AMREX_SPACEDIM);
             Vector<int> centering(sortedGrids.size() * AMREX_SPACEDIM);
@@ -1097,27 +1099,57 @@ void WriteMultiLevelPlotfileHDF5MultiDset (const std::string& plotfilename,
                 ++vbCount;
             }
 
+	    file_dataspace = H5Dget_space(offsetdataset);
+	    off = 0;
+	    count = (ParallelDescriptor::IOProcessor()) ? sortedGrids.size()+1 : 0;
+	    memspace = H5Screate_simple(1,&count,NULL);
+
+	    ret = H5Sselect_hyperslab(file_dataspace,H5S_SELECT_SET,&off,NULL,&count,NULL);
+
             // Only proc zero needs to write out this information
 #ifdef AMREX_USE_HDF5_ASYNC
             ret = H5Dwrite_async(offsetdataset, H5T_NATIVE_LLONG, H5S_ALL, H5S_ALL, dxpl_ind, &(offsets[0]), es_id_g);
 #else
-            ret = H5Dwrite(offsetdataset, H5T_NATIVE_LLONG, H5S_ALL, H5S_ALL, dxpl_ind, &(offsets[0]));
+            ret = H5Dwrite(offsetdataset, H5T_NATIVE_LLONG,file_dataspace,memspace, dxpl_col, &(offsets[0]));
 #endif
             if(ret < 0) { std::cout << "Write offset dataset failed! ret = " << ret << std::endl; }
+
+	    H5Sclose(file_dataspace);
+	    H5Sclose(memspace);
+
+	    file_dataspace = H5Dget_space(centerdataset);
+	    off = 0;
+	    count = (ParallelDescriptor::IOProcessor()) ? sortedGrids.size() : 0;
+	    memspace = H5Screate_simple(1,&count,NULL);
+	    
+	    ret = H5Sselect_hyperslab(file_dataspace,H5S_SELECT_SET,&off,NULL,&count,NULL);
 
 #ifdef AMREX_USE_HDF5_ASYNC
             ret = H5Dwrite_async(centerdataset, center_id, H5S_ALL, H5S_ALL, dxpl_ind, &(centering[0]), es_id_g);
 #else
-            ret = H5Dwrite(centerdataset, center_id, H5S_ALL, H5S_ALL, dxpl_ind, &(centering[0]));
+            ret = H5Dwrite(centerdataset, center_id,file_dataspace,memspace, dxpl_col, &(centering[0]));
 #endif
             if(ret < 0) { std::cout << "Write center dataset failed! ret = " << ret << std::endl; }
+
+	    H5Sclose(file_dataspace);
+	    H5Sclose(memspace);
+
+	    file_dataspace = H5Dget_space(boxdataset);
+	    off = 0;
+	    count = (ParallelDescriptor::IOProcessor()) ? sortedGrids.size() : 0;
+	    memspace = H5Screate_simple(1,&count,NULL);
+
+	    ret = H5Sselect_hyperslab(file_dataspace,H5S_SELECT_SET,&off,NULL,&count,NULL);
 
 #ifdef AMREX_USE_HDF5_ASYNC
             ret = H5Dwrite_async(boxdataset, babox_id, H5S_ALL, H5S_ALL, dxpl_ind, &(vbox[0]), es_id_g);
 #else
-            ret = H5Dwrite(boxdataset, babox_id, H5S_ALL, H5S_ALL, dxpl_ind, &(vbox[0]));
+            ret = H5Dwrite(boxdataset, babox_id,file_dataspace,memspace, dxpl_col, &(vbox[0]));
 #endif
             if(ret < 0) { std::cout << "Write box dataset failed! ret = " << ret << std::endl; }
+
+	    H5Sclose(file_dataspace);
+	    H5Sclose(memspace);
         } // end IOProcessor
 
         hsize_t hs_procsize[1], hs_allprocsize[1], ch_offset[1];
